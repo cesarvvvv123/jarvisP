@@ -1,0 +1,36 @@
+# Kosakata yang dibiaskan ke Whisper (satu istilah per baris, # = komentar).
+# Dimasukkan ke kalimat pembuka Whisper bersama nama proyek di config dan nama folder proyek aktif.
+# Perubahan langsung dipakai tanpa restart.
+Jarvis
+Simantap
+Cingambul
+Majalengka
+Sambo
+Flutter
+Firebase
+jarvisP
+lms sekolah
+Android Studio
+Claude Code
+kalkulator
+buka
+tutup
+jalankan
+folder
+proyek
+# usulan dari log perintah (kata yang pernah salah tangkap)
+istirahat
+konfirmasi
+Chrome
+YouTube
+ElevenLabs
+Sonnet
+haiku
+# dari log 12-11 sore
+Phantom Blade Zero
+save
+load
+local disk
+administrator
+# perintah lokal (log 14-11: "percakapan baru" salah tangkap jadi "Berserakapan baru")
+percakapan baru

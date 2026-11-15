@@ -1,0 +1,34 @@
+# Koreksi sesudah transkripsi: "salah -> benar", satu per baris (# = komentar).
+# Dicocokkan utuh per kata/frasa, huruf besar/kecil diabaikan. Diterapkan sebelum perintah dikirim ke Claude,
+# dan setiap koreksi yang kena ditulis ke log. Perubahan langsung dipakai tanpa restart.
+#
+# Isi awal diusulkan dari logs\jarvis_commands.log (salah tangkap yang pernah terjadi):
+konpirasi -> konfirmasi
+LMS Skola -> lms sekolah
+Jarvis P -> jarvisP
+isi powder -> isi folder
+isli rahat -> istirahat
+kagulaturnya -> kalkulatornya
+kagulatur -> kalkulator
+utup lagi -> tutup lagi
+Gloss Calculator -> close kalkulator
+Class Calculator -> close kalkulator
+Sambu -> Sambo
+sambor -> Sambo
+reshoning -> reasoning
+Sonet -> Sonnet
+# usulan dari tes rekaman (tests\test_whisper_akurasi.py)
+vrebase -> Firebase
+KLMS sekolah -> ke lms sekolah
+# usulan dari tes Groq dan log 12-11 sore
+Cloud Code -> Claude Code
+proyeksi mantap -> proyek Simantap
+sepan -> save-an
+ngelode -> nge-load
+administrasor -> administrator
+Spentum Blade Zero -> Phantom Blade Zero
+lokal dis -> local disk
+# panggilan yang salah tangkap (log 13-11 malam)
+Jaro Pies -> Jarvis
+Jaropies -> Jarvis
+Jarpies -> Jarvis

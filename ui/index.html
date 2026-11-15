@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<style>
+@font-face { font-family: "Rajdhani"; font-weight: 500; src: url("fonts/Rajdhani-500.woff2") format("woff2"); }
+@font-face { font-family: "Rajdhani"; font-weight: 600; src: url("fonts/Rajdhani-600.woff2") format("woff2"); }
+@font-face { font-family: "Rajdhani"; font-weight: 700; src: url("fonts/Rajdhani-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400 500; src: url("fonts/JetBrainsMono-400.woff2") format("woff2"); }
+
+:root {
+  --bg: #05080D; --tx: #E4F7FF; --dim: #7B93A1; --dim2: #8CA5B3; --tx2: #C5DAE4;
+  --line: rgba(255,255,255,.07); --panel: rgba(255,255,255,.03);
+  --ac: #3FB6FF; --ac2: #2D6BFF; --acs: rgba(63,182,255,.20); --acg: rgba(63,182,255,.30);
+  --amber: #FFB224; --info: #4A6272;
+  --bd: 4.5s; --sp: 30s; --a1: .14; --a2: .14; --lvl: 1;
+}
+.warn {
+  --ac: #FFB224; --ac2: #FF7A1A; --acs: rgba(255,178,36,.20); --acg: rgba(255,178,36,.30);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+body { color: var(--tx); font-family: "JetBrains Mono", Consolas, monospace; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--ac); outline-offset: 2px; }
+
+/* ---------- jendela: melayang, latar transparan ---------- */
+.win {
+  position: absolute; inset: 0; border-radius: 18px; display: flex; flex-direction: column; overflow: hidden;
+  /* latar pekat: transparan WebView2 di Windows tetap tergambar abu-abu; bentuk jendela dipotong dari Python */
+  background: radial-gradient(ellipse 80% 55% at 50% 34%, #0A2335 0%, #06121E 48%, #03070C 100%);
+}
+.win::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background-image: radial-gradient(1px 1px at 12% 18%, #9fdcff 50%, transparent 51%),
+    radial-gradient(1px 1px at 82% 12%, #9fdcff 50%, transparent 51%), radial-gradient(1px 1px at 68% 32%, #6fbfe6 50%, transparent 51%),
+    radial-gradient(1px 1px at 22% 44%, #6fbfe6 50%, transparent 51%), radial-gradient(1px 1px at 90% 52%, #9fdcff 50%, transparent 51%),
+    radial-gradient(1px 1px at 8% 66%, #6fbfe6 50%, transparent 51%), radial-gradient(1px 1px at 40% 8%, #9fdcff 50%, transparent 51%); }
+.main { position: relative; }
+
+/* ---------- jendela Qt (ui_qt.py): transparan per piksel, hanya HUD yang terlihat ----------
+   Kelas html.qt dipasang oleh shim ui_qt. Di pywebview (ui_web.py) aturan ini tidak berlaku. */
+html.qt .win { background: transparent; }
+html.qt .win::before { display: none; }
+html.qt .talk .heard:not(:empty), html.qt .talk .speech:not(:empty), html.qt .talk .lines:not(:empty),
+html.qt .talk .meta:not(:empty) {
+  background: rgba(3,9,15,.62); border: 1px solid rgba(63,182,255,.10); border-radius: 10px; padding: 4px 12px; }
+html.qt .talk .lines:not(:empty) { padding: 8px 12px; }
+html.qt .stats { align-self: center; padding: 4px 14px; border-radius: 12px; background: rgba(3,9,15,.62);
+  text-shadow: 0 1px 2px #000; }
+html.qt body.mini .miniwrap { background: transparent; width: 100vw; height: 100vh; }
+/* ukuran mini bisa diubah (scroll di atas orb); --mscale diisi shim ui_qt dari ukuran jendela */
+html.qt body.mini .miniwrap .orb { transform: translate(-50%, -50%) scale(var(--mscale, .62)); }
+
+/* ---------- title bar: hanya ikon, redup sampai disentuh ---------- */
+.titlebar { height: 40px; flex: none; display: flex; align-items: center; }
+.drag { flex: 1; height: 100%; }
+.tright { display: flex; align-items: center; gap: 2px; padding-right: 6px; opacity: .45; transition: opacity .25s; }
+.win:hover .tright { opacity: 1; }
+.ibtn { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--dim2); }
+.ibtn:hover { background: rgba(63,182,255,.08); color: var(--tx); }
+.ibtn svg { width: 17px; height: 17px; }
+
+/* ---------- panggung reaktor ---------- */
+.stage { position: relative; height: 392px; flex: none; margin-top: -10px; }
+.float { position: absolute; left: 50%; top: 0; width: 300px; height: 300px; margin-left: -150px;
+  animation: hover 6s ease-in-out infinite; }
+.beam { position: absolute; left: 50%; top: 236px; width: 190px; height: 112px; margin-left: -95px;
+  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
+  background: linear-gradient(to top, rgba(63,182,255,.30), rgba(63,182,255,.06) 70%, transparent);
+  animation: beam 6s ease-in-out infinite; pointer-events: none; }
+.pad { position: absolute; left: 50%; top: 300px; width: 250px; height: 250px; margin: 0 0 0 -125px;
+  transform: perspective(520px) rotateX(76deg); transform-origin: 50% 0; pointer-events: none; }
+.pad > * { position: absolute; border-radius: 50%; }
+.pad .p1 { inset: 0; border: 2px solid rgba(63,182,255,.55); box-shadow: 0 0 22px var(--acg), inset 0 0 22px var(--acs); }
+.pad .p2 { inset: 30px; border: 2px dashed rgba(63,182,255,.45); animation: spin 14s linear infinite; }
+.pad .p3 { inset: 62px; border: 1px solid rgba(63,182,255,.6); animation: spin 9s linear infinite reverse;
+  border-top-color: transparent; border-bottom-color: transparent; }
+.pad .p4 { inset: 96px; background: radial-gradient(circle, rgba(63,182,255,.75), rgba(63,182,255,.12) 60%, transparent 72%);
+  animation: padglow 6s ease-in-out infinite; }
+
+/* ---------- reaktor ---------- */
+.orb { position: relative; width: 300px; height: 300px; flex: none; }
+.orb > * { position: absolute; }
+.glow {
+  left: -20px; top: -20px; width: 340px; height: 340px; border-radius: 50%;
+  background: radial-gradient(circle, var(--acs) 0%, transparent 62%);
+  animation: breathe var(--bd) ease-in-out infinite alternate;
+}
+/* cincin, batang, gelombang, dan animasi proses digambar di satu <canvas> (drawOrb).
+   Dulu SVG + 60 <div> beranimasi: di QtWebEngine 6.12 itu membocorkan RAM renderer. */
+.orbc { left: -30px; top: -30px; width: 360px; height: 360px; pointer-events: none; }
+.core {
+  left: 66px; top: 66px; width: 168px; height: 168px; border-radius: 50%;
+  border: 1.5px solid rgba(63,182,255,.55);
+  background: radial-gradient(circle, rgba(18,52,96,.55) 0%, rgba(4,12,26,.85) 70%);
+  box-shadow: 0 0 30px var(--acs), inset 0 0 26px rgba(45,107,255,.35);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  animation: pulse var(--bd) ease-in-out infinite alternate;
+}
+/* teks JARVIS: gradasi putih -> biru dengan cahaya, seperti referensi tema */
+.cname { font-family: "Rajdhani"; font-weight: 700; font-size: 40px; line-height: 1; letter-spacing: .08em; padding-left: .08em;
+  background: linear-gradient(180deg, #F2FAFF 0%, #9FDCFF 42%, #3FB6FF 70%, #2D6BFF 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 8px rgba(63,182,255,.65)) drop-shadow(0 0 18px rgba(45,107,255,.35)); }
+.warn .cname { background: linear-gradient(180deg, #FFF6E5 0%, #FFD27A 50%, #FFB224 100%);
+  -webkit-background-clip: text; background-clip: text; }
+/* proses: label dan titik berkedip cepat supaya jelas beda dengan diam */
+body[data-state="processing"] .cstate { animation: dot .7s ease-in-out infinite; }
+.cstate { display: flex; align-items: center; gap: 6px; font-family: "Rajdhani"; font-weight: 600; font-size: 11px;
+  letter-spacing: .2em; color: var(--ac); }
+.cstate i { width: 6px; height: 6px; border-radius: 50%; background: var(--ac); box-shadow: 0 0 8px var(--ac);
+  animation: dot calc(var(--bd) / 2) ease-in-out infinite; }
+
+@keyframes hover { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes beam { 0%, 100% { opacity: .9; } 50% { opacity: .55; } }
+@keyframes padglow { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(.88); } }
+@keyframes breathe { from { transform: scale(1); opacity: .6; } to { transform: scale(1.07); opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { from { transform: scale(1); } to { transform: scale(1.035); } }
+@keyframes wave {
+  from { transform: scaleY(var(--lo)); }
+  to { transform: scaleY(var(--hi)); }
+}
+@keyframes dot { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes ping { from { transform: scale(1); opacity: .7; } to { transform: scale(1.35); opacity: 0; } }
+
+/* ---------- percakapan: hanya muncul kalau ada isinya ---------- */
+.talk { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 0 34px 10px; text-align: center; }
+.heard { font-size: 13px; color: var(--dim2); max-width: 100%; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; text-shadow: 0 1px 3px #000; min-height: 17px; flex: none; }
+.cursor { display: inline-block; width: 7px; height: 14px; background: var(--ac); vertical-align: -2px; margin-left: 2px;
+  animation: blink 1s steps(1) infinite; }
+.speech { font-family: "Rajdhani"; font-weight: 600; font-size: 21px; line-height: 1.2; color: var(--ac); flex: none;
+  text-shadow: 0 0 12px var(--acs), 0 1px 3px #000; }
+.lines { width: 100%; overflow-y: auto; flex: 0 1 auto; min-height: 0; text-align: left; }
+.ln { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--tx2); line-height: 1.45; user-select: text;
+  text-shadow: 0 1px 2px #000; }
+.ln i { width: 5px; height: 5px; border-radius: 50%; flex: none; transform: translateY(-1px); background: var(--info); }
+.ln i.ok { background: var(--ac); } .ln i.warn { background: var(--amber); }
+.meta { font-size: 10.5px; color: var(--dim); letter-spacing: .08em; flex: none; }
+
+/* ---------- dock ---------- */
+/* ramping, tanpa tombol mic (bicara: tahan inti orb / hotkey / kata "Jarvis"); bisa dilipat lewat tombol di bawah */
+.dock { margin: 0 auto; height: 48px; flex: none; display: flex; align-items: center; gap: 2px;
+  padding: 0 8px; border-radius: 24px; background: rgba(5,13,21,.66); border: 1px solid var(--acs);
+  box-shadow: 0 0 26px rgba(63,182,255,.08), inset 0 0 20px rgba(63,182,255,.05); backdrop-filter: blur(8px); }
+.tgs { display: flex; gap: 6px; }
+.tg { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--dim);
+  border: 1px solid transparent; transition: color .2s, border-color .2s, box-shadow .2s; }
+.tg svg { width: 18px; height: 18px; }
+.tg:hover { color: var(--tx2); }
+.tg.on { color: var(--ac); border-color: rgba(63,182,255,.38); box-shadow: 0 0 10px rgba(63,182,255,.22); }
+.dock .sep { width: 1px; height: 20px; background: rgba(63,182,255,.18); margin: 0 6px; }
+body.fold .dock { display: none; }
+/* inti orb = tombol bicara: tahan untuk bicara, klik saat memproses = batalkan, saat bicara = potong */
+.win .core { cursor: pointer; transition: box-shadow .15s, filter .15s; }
+.win .core:hover { box-shadow: 0 0 46px var(--acg), inset 0 0 34px var(--acs); }
+.win .core.down { filter: brightness(1.35); box-shadow: 0 0 60px var(--acg), inset 0 0 44px var(--acg); }
+.fold { display: grid; place-items: center; width: 22px; height: 16px; color: var(--dim); }
+.fold:hover { color: var(--ac); }
+.fold svg { width: 14px; height: 14px; transition: transform .2s; }
+body:not(.fold) .fold svg { transform: rotate(180deg); }
+.stats { display: flex; justify-content: center; gap: 16px; margin: 9px 0 12px; flex: none;
+  font-size: 11px; color: var(--dim); letter-spacing: .04em; }
+.stats > * { white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.stats .low { color: var(--amber); }
+.statbtn { color: var(--dim); cursor: pointer; font-size: 11px; }
+.statbtn:hover { color: var(--ac); }
+.toast {
+  position: absolute; left: 50%; bottom: 122px; transform: translateX(-50%) translateY(8px); opacity: 0;
+  background: rgba(5,13,21,.9); border: 1px solid var(--acs); color: var(--ac); border-radius: 16px; padding: 7px 14px;
+  font-size: 12px; letter-spacing: .06em; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- mini ---------- */
+.miniwrap { display: none; }
+body.mini .win { display: none; }
+body.mini .miniwrap {
+  display: grid; place-items: center; position: absolute; left: 0; top: 0; width: 200px; height: 200px;
+  border-radius: 50%; background: radial-gradient(circle, #0A2335 0%, #06121E 55%, #03070C 100%);
+  overflow: hidden;
+}
+body.mini .miniwrap .orb { position: absolute; left: 50%; top: 50%; margin: 0;
+  transform: translate(-50%, -50%) scale(.54); pointer-events: none; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.10); border-radius: 4px; }
+
+/* ---------- pengaturan ---------- */
+.settings { display: none; position: absolute; inset: 0; flex-direction: column; background: var(--bg); border-radius: 18px; z-index: 2; }
+body.set .settings { display: flex; }
+body.set .main { display: none; }
+.sbar { height: 44px; display: flex; align-items: center; border-bottom: 1px solid var(--line); flex: none; }
+.sbar h1 { font-family: "Rajdhani"; font-weight: 700; font-size: 16px; letter-spacing: .3em; flex: 1; height: 100%;
+  display: flex; align-items: center; padding-left: 4px; }
+.sbody { flex: 1; overflow-y: auto; padding: 4px 24px 16px; }
+.sec { font-size: 11px; letter-spacing: .14em; color: var(--dim); margin: 18px 0 8px; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--line); font-size: 13px; color: var(--tx2); }
+.row label.t { flex: 1; }
+.row small { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+.keyin { display: flex; gap: 6px; align-items: center; }
+.sbody .keyin input { width: 180px; max-width: none; }
+.sbody .keyin input.vid { width: 238px; }   /* = kolom kunci + jarak + tombol LIHAT */
+.pv { display: none; }
+.pv.on { display: block; }
+.eye { width: 52px; height: 28px; flex: none; color: var(--dim2); border: 1px solid var(--line); border-radius: 6px;
+  font-size: 10px; letter-spacing: .08em; }
+.krow { justify-content: flex-end; }
+.kmsg { flex: 1; font-size: 12px; color: var(--dim); }
+.kmsg.bad { color: var(--amber); }
+.kmsg.good { color: var(--ac); }
+select, .sbody input[type=text], .sbody input[type=password] {
+  background: #0B1119; color: var(--tx); border: 1px solid rgba(255,255,255,.12); border-radius: 6px;
+  font: 12px "JetBrains Mono", monospace; padding: 6px 8px; max-width: 240px;
+}
+input[type=range] { accent-color: var(--ac); width: 160px; }
+.radio { display: flex; flex-direction: column; gap: 6px; }
+.radio label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.radio input { accent-color: var(--ac); }
+.proj { display: flex; gap: 6px; margin: 6px 0; }
+.proj input:first-child { width: 120px; }
+.proj input:nth-child(2) { flex: 1; max-width: none; }
+.small { font-size: 12px; color: var(--ac); border: 1px solid var(--acs); border-radius: 6px; padding: 5px 10px; }
+.xbtn { width: 30px; color: var(--dim2); border: 1px solid var(--line); border-radius: 6px; }
+.sfoot { display: flex; gap: 10px; padding: 12px 24px 16px; border-top: 1px solid var(--line); flex: none; align-items: center; }
+.sfoot .err { flex: 1; color: var(--amber); font-size: 12px; }
+.sfoot button { height: 40px; padding: 0 22px; border-radius: 8px; font-family: "Rajdhani"; font-weight: 700;
+  letter-spacing: .18em; font-size: 15px; }
+.cancel { border: 1px solid rgba(255,255,255,.14); color: var(--tx2); }
+.save { border: 1px solid var(--ac); background: var(--acs); color: var(--tx); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="win" id="win">
+  <div class="main" style="display:flex;flex-direction:column;height:100%">
+    <div class="titlebar">
+      <div class="drag pywebview-drag-region"></div>
+      <div class="tright">
+        <button class="ibtn" id="bMini" aria-label="Mode mini" title="Mode mini">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+        <button class="ibtn" id="bSet" aria-label="Pengaturan" title="Pengaturan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+        <button class="ibtn" id="bClose" aria-label="Tutup Jarvis" title="Tutup">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+    </div>
+
+    <div class="stage pywebview-drag-region">
+      <div class="beam"></div>
+      <div class="pad"><div class="p1"></div><div class="p2"></div><div class="p3"></div><div class="p4"></div></div>
+      <div class="float" id="orbHome"></div>
+    </div>
+
+    <div class="talk" aria-live="polite">
+      <div class="heard" id="heard"></div>
+      <div class="speech" id="speech"></div>
+      <div class="lines" id="resBody"></div>
+      <div class="meta" id="meta"></div>
+    </div>
+
+    <div class="dock">
+      <div class="tgs">
+        <button class="tg" id="wake" aria-pressed="true" title="Panggil dengan suara">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg></button>
+        <button class="tg" id="bBrowser" aria-pressed="false" title="Browser">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></button>
+      </div>
+      <div class="sep"></div>
+      <div class="tgs">
+        <button class="tg" id="bScreen" aria-pressed="false" title="Lihat layar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M9 20h6M12 16.5V20"/></svg></button>
+        <button class="tg" id="bClip" aria-pressed="true" title="Baca clipboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="5.5" y="4.5" width="13" height="16" rx="1.5"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h4"/></svg></button>
+        <button class="tg" id="bDesk" aria-pressed="false" title="Kontrol komputer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 3.5l12 7-5.2 1.4L10 17.5z"/></svg></button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <button class="fold" id="bFold" aria-label="Tampilkan atau lipat tombol" title="Tampilkan / lipat tombol">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg></button>
+      <span id="sProj" title="Proyek">—</span>
+      <button class="statbtn" id="bModel" aria-label="Ganti model Claude (haiku, sonnet, opus)"><span id="sModel">—</span></button>
+      <button class="statbtn" id="bStt" aria-label="Ganti pengenal suara (Groq atau Speechmatics)"><span id="sStt">—</span></button>
+      <button class="statbtn" id="bNew" aria-label="Mulai percakapan baru (sesi Claude dari awal, hemat usage)" title="Percakapan baru"><span>BARU</span></button>
+      <span id="sCredit" title="Sisa kredit suara">—</span>
+      <span id="sTime" title="Selesai bicara sampai Jarvis bersuara">—</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- layar pengaturan -->
+  <div class="settings" id="settings">
+    <div class="sbar">
+      <button class="ibtn" id="sBack" aria-label="Kembali" title="Kembali">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <h1 class="pywebview-drag-region">PENGATURAN</h1>
+    </div>
+    <div class="sbody">
+      <div class="sec">KUNCI API</div>
+      <div class="row"><label class="t" for="kProvider">Penyedia suara<small>Edge TTS tetap jadi cadangan kalau gagal</small></label>
+        <select id="kProvider"><option value="elevenlabs">ElevenLabs</option><option value="speechify">Speechify</option></select></div>
+      <div class="pv" data-pv="elevenlabs">
+      <div class="row"><label class="t" for="kEleven">API key ElevenLabs<small id="kElevenNow">belum diisi</small></label>
+        <div class="keyin"><input type="password" id="kEleven" autocomplete="off" spellcheck="false" placeholder="kosong = tetap">
+          <button class="eye" data-for="kEleven" aria-label="Tampilkan API key ElevenLabs">LIHAT</button></div></div>
+      <div class="row"><label class="t" for="kVoice">Voice ID<small>Suara ElevenLabs yang dipakai</small></label>
+        <div class="keyin"><input type="text" id="kVoice" class="vid" autocomplete="off" spellcheck="false" placeholder="mis. 21m00Tcm4TlvDq8ikWAM"></div></div>
+      </div>
+      <div class="pv" data-pv="speechify">
+      <div class="row"><label class="t" for="kSfy">API key Speechify<small id="kSfyNow">belum diisi</small></label>
+        <div class="keyin"><input type="password" id="kSfy" autocomplete="off" spellcheck="false" placeholder="kosong = tetap">
+          <button class="eye" data-for="kSfy" aria-label="Tampilkan API key Speechify">LIHAT</button></div></div>
+      <div class="row"><label class="t" for="kSfyVoice">Voice ID<small>Suara Speechify, model simba-3.5 (bahasa Indonesia)</small></label>
+        <div class="keyin"><input type="text" id="kSfyVoice" class="vid" autocomplete="off" spellcheck="false" placeholder="dari dashboard Speechify"></div></div>
+      </div>
+      <div class="row"><label class="t" for="kGroq">API key Groq<small id="kGroqNow">belum diisi</small></label>
+        <div class="keyin"><input type="password" id="kGroq" autocomplete="off" spellcheck="false" placeholder="kosong = tetap">
+          <button class="eye" data-for="kGroq" aria-label="Tampilkan API key Groq">LIHAT</button></div></div>
+      <div class="row"><label class="t" for="kDg">API key Deepgram<small id="kDgNow">belum diisi</small></label>
+        <div class="keyin"><input type="password" id="kDg" autocomplete="off" spellcheck="false" placeholder="kosong = tetap">
+          <button class="eye" data-for="kDg" aria-label="Tampilkan API key Deepgram">LIHAT</button></div></div>
+      <div class="row"><label class="t" for="kSmx">API key Speechmatics<small id="kSmxNow">belum diisi</small></label>
+        <div class="keyin"><input type="password" id="kSmx" autocomplete="off" spellcheck="false" placeholder="kosong = tetap">
+          <button class="eye" data-for="kSmx" aria-label="Tampilkan API key Speechmatics">LIHAT</button></div></div>
+      <div class="row krow"><div class="kmsg" id="kMsg" role="status" aria-live="polite"></div>
+        <button class="small" id="kApply" aria-label="Terapkan kunci API dan Voice ID">TERAPKAN</button></div>
+
+      <div class="sec">SUARA</div>
+      <div class="row"><label class="t" for="fModel">Model suara<small>Khusus ElevenLabs</small></label><select id="fModel"></select></div>
+      <div class="row"><label class="t" for="fFallback">Suara cadangan<small>Edge TTS kalau ElevenLabs gagal atau kredit habis</small></label>
+        <input type="checkbox" id="fFallback"></div>
+      <div class="row"><label class="t" for="fDetails">Bacakan rincian juga<small>Bagian LAYAR ikut dibacakan</small></label>
+        <input type="checkbox" id="fDetails"></div>
+
+      <div class="sec">PENDENGARAN</div>
+      <div class="row"><label class="t" for="fMic">Mikrofon</label><select id="fMic"></select></div>
+      <div class="row"><label class="t" for="fStt">Pengenal suara</label><select id="fStt"></select></div>
+      <div class="row"><label class="t" for="fSil">Batas diam<small id="fSilV">1000 ms</small></label>
+        <input type="range" id="fSil" min="800" max="3000" step="100"></div>
+      <div class="row"><label class="t" for="fMerge">Tunggu lanjutan<small id="fMergeV">0 ms</small></label>
+        <input type="range" id="fMerge" min="0" max="5000" step="100"></div>
+      <div class="row"><label class="t" for="fAck">Sapaan konfirmasi<small>“Siap bos, saya kerjakan.” sebelum perintah aksi</small></label>
+        <input type="checkbox" id="fAck"></div>
+      <div class="row"><label class="t" for="fWakeReply">Sahutan saat dipanggil<small>“Iya bos?” kalau hanya bilang ‘Jarvis’; mati = bunyi beep</small></label>
+        <input type="checkbox" id="fWakeReply"></div>
+
+      <div class="sec">PERINTAH</div>
+      <div class="row"><label class="t" for="fClaude">Model<small>Opus paling kuat tapi paling mahal; langsung berlaku</small></label>
+        <select id="fClaude"><option value="haiku">Haiku</option><option value="sonnet">Sonnet</option><option value="opus">Opus</option></select></div>
+      <div class="row"><span class="t">Mode eksekusi<small>Perintah berbahaya tetap diblokir</small></span>
+        <div class="radio">
+          <label><input type="radio" name="fRun" value="direct"> Langsung jalan</label>
+          <label><input type="radio" name="fRun" value="ask"> Minta izin</label>
+        </div></div>
+      <div class="row"><label class="t" for="fBrowser">Browser<small>Claude in Chrome. Semua situs boleh.</small></label>
+        <select id="fBrowser"><option value="off">Mati</option><option value="chrome">Chrome</option></select></div>
+      <div class="row"><label class="t" for="fConfirm">Tanya dulu sebelum bayar/kirim/hapus/posting</label>
+        <input type="checkbox" id="fConfirm"></div>
+      <div class="row"><label class="t" for="fDesk">Kontrol komputer<small>Windows-MCP: klik, ketik, dan screenshot di aplikasi Windows</small></label>
+        <input type="checkbox" id="fDesk"></div>
+      <div class="row"><label class="t" for="fScreen">Izinkan lihat layar<small>Screenshot layar utama hanya saat diminta lewat suara</small></label>
+        <input type="checkbox" id="fScreen"></div>
+      <div class="row"><label class="t" for="fClip">Izinkan baca clipboard<small>Teks atau gambar yang di-copy, hanya saat diminta</small></label>
+        <input type="checkbox" id="fClip"></div>
+      <div style="padding:10px 0;border-bottom:1px solid var(--line)">
+        <div style="font-size:13px;color:var(--tx2)">Proyek<small style="display:block;color:var(--dim);font-size:11px">Nama panggilan → path. Ucapkan “pindah ke &lt;nama&gt;”.</small></div>
+        <div id="fProjects"></div>
+        <button class="small" id="fAddProj" aria-label="Tambah proyek">+ TAMBAH PROYEK</button>
+      </div>
+
+      <div class="sec">TAMPILAN</div>
+      <div class="row"><label class="t" for="fTop">Selalu di atas jendela lain</label><input type="checkbox" id="fTop"></div>
+    </div>
+    <div class="sfoot">
+      <div class="err" id="sErr"></div>
+      <button class="cancel" id="sCancel" aria-label="Batal">BATAL</button>
+      <button class="save" id="sSave" aria-label="Simpan pengaturan">SIMPAN</button>
+    </div>
+  </div>
+</div>
+
+<div class="miniwrap pywebview-drag-region" id="mini" title="Klik dua kali untuk kembali"></div>
+
+<!-- orb (dipindah antara mode penuh dan mini) -->
+<template id="orbTpl">
+  <div class="orb" id="orb">
+    <div class="glow"></div>
+    <canvas class="orbc" id="orbc" width="720" height="720"></canvas>
+    <div class="core">
+      <div class="cname">JARVIS</div>
+      <div class="cstate"><i></i><span id="label">STANDBY</span></div>
+    </div>
+  </div>
+</template>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const api = () => (window.pywebview && window.pywebview.api) || null;
+  const call = (name, ...args) => { const a = api(); return a && a[name] ? a[name](...args) : Promise.resolve(null); };
+
+  // ----- orb -----
+  const orbNode = $("orbTpl").content.firstElementChild.cloneNode(true);
+  $("orbHome").appendChild(orbNode);
+  const orb = $("orb");
+  // ===== orb digambar di satu <canvas> (tema: ui/ref/tema_jarvis_hud.webp) =====
+  // Satu canvas, bukan banyak elemen beranimasi: lebih ringan dan aman dari kebocoran RAM QtWebEngine.
+  const oc = $("orbc"), octx = oc.getContext("2d");
+  const NBAR = 72;
+  const barP = Array.from({ length: NBAR }, () => ({ lo: .1, hi: .2, d: 3, dl: 0, op: 1 }));
+  let lvl = 0, lvlS = 0;                             // level mic/suara 0..1 dan versi halusnya
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let C1 = "#3FB6FF", C2 = "#2D6BFF", colorAt = 0;
+  // parameter per keadaan; nilai aktif berpindah halus (lerp) supaya pergantian keadaan tidak meloncat
+  const MODE = {
+    idle:       { spd: 1,   glow: .55, lis: 0, spk: 0, proc: 0 },
+    listening:  { spd: 1.6, glow: .85, lis: 1, spk: 0, proc: 0 },
+    processing: { spd: 1,   glow: 1,   lis: 0, spk: 0, proc: 1 },
+    speaking:   { spd: 2,   glow: .9,  lis: 0, spk: 1, proc: 0 },
+    warning:    { spd: 1.5, glow: .85, lis: 0, spk: 1, proc: 0 },
+  };
+  const cur = Object.assign({}, MODE.idle);
+  const ang = { seg: 0, inner: 0, tick: 0, outer: 0, sweep: 0 };
+  let lastT = 0;
+  const D2R = Math.PI / 180;
+  const SEGS = [[0, 38], [44, 62], [70, 120], [128, 140], [150, 205], [212, 222], [232, 290], [298, 345]];
+  const OUTER = [[0, 50], [70, 95], [180, 250], [290, 300]];
+  const INNER = [[0, 70], [120, 150], [200, 290]];
+
+  function arc(r, a0, a1, w, alpha, color, blur) {
+    octx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    octx.strokeStyle = color; octx.lineWidth = w; octx.shadowColor = color; octx.shadowBlur = blur || 0;
+    octx.beginPath(); octx.arc(0, 0, r, a0 * D2R, a1 * D2R); octx.stroke();
+  }
+
+  function drawOrb(now) {
+    requestAnimationFrame(drawOrb);
+    const t = now / 1000, dt = lastT ? Math.min(0.1, t - lastT) : 0;
+    lastT = t;
+    if (now - colorAt > 500) {                       // warna ikut tema/keadaan (biru; kuning saat warning)
+      const cs = getComputedStyle(orb);
+      C1 = cs.getPropertyValue("--ac").trim() || C1;
+      C2 = cs.getPropertyValue("--ac2").trim() || C2;
+      colorAt = now;
+    }
+    const tgt = MODE[state] || MODE.idle, k = Math.min(1, dt * 4);
+    for (const key in cur) cur[key] += (tgt[key] - cur[key]) * k;
+    const live = (STATES[state] || {}).live;
+    lvlS += ((live ? lvl : 0) - lvlS) * Math.min(1, dt * 12);
+    const mv = reduceMotion.matches ? 0 : 1, P = cur.proc, g = cur.glow;
+    ang.seg += dt * mv * (6 * cur.spd + 150 * P);
+    ang.inner -= dt * mv * (10 * cur.spd + 240 * P);
+    ang.tick += dt * mv * 3 * cur.spd;
+    ang.outer -= dt * mv * (4 * cur.spd + 70 * P);
+    ang.sweep += dt * mv * (40 + 320 * P);
+
+    const W = oc.width, S = W / 360;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.clearRect(0, 0, W, W);
+    octx.setTransform(S, 0, 0, S, 180 * S, 180 * S);
+    octx.lineCap = "round"; octx.setLineDash([]);
+
+    // 1. busur tipis paling luar + titik di ujungnya
+    for (const [a, b] of OUTER) {
+      arc(170, a + ang.outer, b + ang.outer, 1.4, .45 * g, C1, 6);
+      octx.fillStyle = C1;
+      for (const e of [a, b]) {
+        const r = (e + ang.outer) * D2R;
+        octx.beginPath(); octx.arc(Math.cos(r) * 170, Math.sin(r) * 170, 1.8, 0, 7); octx.fill();
+      }
+    }
+    // 2. cincin tebal bersegmen (cincin utama)
+    for (const [a, b] of SEGS) arc(152, a + ang.seg, b + ang.seg, 6, .5 + .45 * g, C1, 14 * g);
+    // proses: komet putih-biru berekor yang memutari cincin utama
+    if (P > .02) {
+      for (let i = 0; i < 24; i++) {
+        const a = ang.sweep * 1.4 - i * 3;
+        arc(152, a, a + 3.2, 6.5, P * (1 - i / 24), i < 3 ? "#EAF6FF" : C1, 18);
+      }
+    }
+    // 3. cincin tick
+    octx.save(); octx.rotate(ang.tick * D2R);
+    octx.globalAlpha = .4 * g + .1; octx.strokeStyle = C1; octx.lineWidth = 1.2; octx.shadowBlur = 0;
+    octx.beginPath();
+    for (let i = 0; i < 120; i++) {
+      const a = i * 3 * D2R, len = i % 10 === 0 ? 9 : 4, c = Math.cos(a), s = Math.sin(a);
+      octx.moveTo(c * 136, s * 136); octx.lineTo(c * (136 + len), s * (136 + len));
+    }
+    octx.stroke(); octx.restore();
+    // 4. cincin tipis penuh
+    arc(128, 0, 360, 1, .28 + .12 * g, C2, 0);
+    // 5. busur dalam, berputar berlawanan arah
+    for (const [a, b] of INNER) arc(119, a + ang.inner, b + ang.inner, 3, .45 + .35 * g, C2, 8);
+
+    // 6. area keadaan (r 88..115)
+    const idleW = Math.max(0, 1 - cur.lis - cur.spk - P);
+    if (idleW > .02) {                               // diam: satu cincin lembut bernapas
+      arc(98, 0, 360, 1.4, idleW * (.22 + .14 * Math.sin(t * 1.3)), C1, 6);
+    }
+    if (cur.lis > .02) {                             // mendengar: batang radial mengikuti suara
+      octx.save(); octx.globalAlpha = cur.lis; octx.strokeStyle = C1; octx.lineWidth = 2.2;
+      octx.shadowColor = C1; octx.shadowBlur = 6; octx.beginPath();
+      for (let i = 0; i < NBAR; i++) {
+        const p = barP[i], ph = ((t + p.dl) % (2 * p.d)) / p.d;
+        const e = mv ? 0.5 - 0.5 * Math.cos(Math.PI * (ph <= 1 ? ph : 2 - ph)) : 0;
+        const len = 3 + 20 * (p.lo + (p.hi - p.lo) * e) * (0.3 + 0.7 * lvlS);
+        const a = (i * 360 / NBAR - 90) * D2R, c = Math.cos(a), s = Math.sin(a);
+        octx.moveTo(c * 90, s * 90); octx.lineTo(c * (90 + len), s * (90 + len));
+      }
+      octx.stroke(); octx.restore();
+    }
+    if (cur.spk > .02) {                             // bicara: gelombang halus berlapis (bukan batang kotak)
+      const amp = 2 + 14 * lvlS;
+      const layers = [[C1, 2.2, .95, 1, 0], [C2, 1.6, .6, .75, 1.7], ["#EAF6FF", 1, .35, .5, 3.1]];
+      for (const [col, w, al, f, off] of layers) {
+        octx.globalAlpha = cur.spk * al; octx.strokeStyle = col; octx.lineWidth = w;
+        octx.shadowColor = col; octx.shadowBlur = 10; octx.beginPath();
+        for (let i = 0; i <= 180; i++) {
+          const a = i * 2 * D2R;
+          const r = 99 + amp * f * (Math.sin(3 * a + t * 2.1 + off) * .5 + Math.sin(5 * a - t * 3.3 + off) * .3 + Math.sin(9 * a + t * 5.2) * .2);
+          const x = Math.cos(a) * r, y = Math.sin(a) * r;
+          i ? octx.lineTo(x, y) : octx.moveTo(x, y);
+        }
+        octx.closePath(); octx.stroke();
+      }
+    }
+    if (P > .02) {                                   // proses: sapuan radar + cincin putus-putus + titik orbit
+      const sw = ang.sweep * D2R;
+      if (octx.createConicGradient) {
+        const cg = octx.createConicGradient(sw - 1.2, 0, 0);
+        cg.addColorStop(0, "rgba(63,182,255,0)");
+        cg.addColorStop(0.19, "rgba(63,182,255," + (.38 * P).toFixed(3) + ")");
+        cg.addColorStop(0.191, "rgba(63,182,255,0)");
+        cg.addColorStop(1, "rgba(63,182,255,0)");
+        octx.globalAlpha = 1; octx.shadowBlur = 0; octx.fillStyle = cg;
+        octx.beginPath(); octx.arc(0, 0, 146, 0, 7); octx.arc(0, 0, 86, 0, 7, true); octx.fill("evenodd");
+      }
+      octx.setLineDash([3, 7]); arc(106, ang.inner * -1.5, ang.inner * -1.5 + 360, 2, P * .8, C1, 6); octx.setLineDash([]);
+      octx.fillStyle = "#EAF6FF"; octx.shadowColor = C1; octx.shadowBlur = 12;
+      for (let i = 0; i < 3; i++) {
+        const a = sw * 2.2 + i * 2.094;
+        octx.globalAlpha = P; octx.beginPath(); octx.arc(Math.cos(a) * 112, Math.sin(a) * 112, 2.6, 0, 7); octx.fill();
+      }
+    }
+    octx.globalAlpha = 1; octx.shadowBlur = 0;
+  }
+
+  const STATES = {
+    idle:       { label: "STANDBY", hint: () => "Say “Jarvis” to start", chip: "STANDBY", bd: 4.5, sp: 30, a: [.14, .14], icon: "mic",
+                  bar: () => ({ lo: .10, hi: rand(.16, .30), d: rand(2.8, 4.8) }) },
+    listening:  { label: "LISTENING", hint: () => "Go ahead, I'm listening", chip: "LISTENING", bd: 1.1, sp: 16, a: [.2, .2], icon: "mic", live: true,
+                  bar: () => ({ lo: rand(.14, .24), hi: rand(.45, 1.0), d: rand(.35, .8) }) },
+    processing: { label: "PROCESSING", hint: () => "On it…", chip: "PROCESSING", bd: 2.2, sp: 2.6, a: [1, .8], icon: "dots",
+                  bar: () => ({ lo: .08, hi: rand(.14, .18), d: 2.4 }) },
+    speaking:   { label: "SPEAKING", hint: (h) => `Press ${h} to interrupt`, chip: "SPEAKING", bd: 1.6, sp: 12, a: [.2, .2], icon: "eq", live: true,
+                  bar: (i) => ({ lo: .18, hi: .30 + .62 * Math.abs(Math.sin(i * .33 + .8)), d: rand(.55, 1.0) }) },
+    warning:    { label: "BACKUP VOICE", hint: () => "Using backup voice (Edge TTS)", chip: "BACKUP VOICE", bd: 2.4, sp: 20, a: [.18, .18], icon: "warn", warn: true, live: true,
+                  bar: () => ({ lo: .10, hi: rand(.22, .42), d: rand(1.4, 2.4) }) },
+  };
+
+  let state = "idle", data = { hotkey: "F9", lines: [] }, pttDown = false;
+
+  function applyBars(cfg) {
+    barP.forEach((b, i) => {
+      const p = cfg.bar(i);
+      Object.assign(b, { lo: p.lo, hi: p.hi, d: p.d, dl: rand(0, 2 * p.d), op: rand(.55, 1) });
+    });
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  function render() {
+    const cfg = STATES[state] || STATES.idle;
+    const root = document.documentElement;
+    document.body.classList.toggle("warn", !!cfg.warn);
+    document.body.dataset.state = state;
+    root.style.setProperty("--bd", cfg.bd + "s");
+    root.style.setProperty("--sp", cfg.sp + "s");
+    root.style.setProperty("--a1", cfg.a[0]);
+    root.style.setProperty("--a2", cfg.a[1]);
+    if (!cfg.live) lvl = 1;
+    $("label").textContent = cfg.label;
+    const bb = $("bBrowser"), bon = !!data.browser;
+    bb.classList.toggle("on", bon);
+    bb.setAttribute("aria-pressed", String(bon));
+    const btxt = bon ? "Browser aktif (mode aman), klik untuk mematikan" : "Browser mati, klik untuk mengaktifkan";
+    bb.setAttribute("aria-label", btxt);
+    bb.title = btxt;
+    for (const [id, on, name] of [["bScreen", !!data.screen, "Lihat layar"], ["bClip", data.clip !== false, "Baca clipboard"],
+                                  ["bDesk", !!data.desktop, "Kontrol komputer"]]) {
+      const el = $(id), t = `${name} ${on ? "aktif" : "mati"}, klik untuk ${on ? "mematikan" : "mengaktifkan"}`;
+      el.classList.toggle("on", on);
+      el.setAttribute("aria-pressed", String(on));
+      el.setAttribute("aria-label", t);
+      el.title = t;
+    }
+
+    const heard = $("heard");
+    if (data.transcript) {
+      heard.className = "heard";
+      heard.innerHTML = esc(data.transcript) + (state === "listening" ? '<span class="cursor"></span>' : "");
+    } else if (state === "listening") {
+      heard.className = "heard";
+      heard.innerHTML = '<span class="cursor"></span>';
+    } else {
+      heard.className = "heard";
+      heard.textContent = "";                         // tanpa teks petunjuk
+    }
+    heard.title = data.transcript || "";
+
+    $("meta").textContent = data.meta || "";
+    $("speech").textContent = data.speech || "";
+    $("resBody").innerHTML = (data.lines || [])
+      .map((l) => `<div class="ln"><i class="${esc(l.dot || "info")}"></i><span>${esc(l.t)}</span></div>`).join("");
+
+    const hk = data.hotkey || "F9";
+    const ptt = orb.querySelector(".core");
+    const mode = state === "processing" ? ["cancel", "Klik untuk batalkan (Esc)"]
+      : (state === "speaking" || state === "warning") ? ["stop", `Tahan untuk potong ucapan Jarvis (${hk})`]
+      : ["mic", `Tahan untuk bicara (${hk})`];
+    ptt.dataset.mode = mode[0];
+    ptt.setAttribute("role", "button");
+    ptt.setAttribute("aria-label", mode[1]);
+    ptt.title = mode[1];
+
+    const wk = $("wake"), won = data.wake !== false;
+    wk.classList.toggle("on", won);
+    wk.setAttribute("aria-pressed", String(won));
+    wk.setAttribute("aria-label", `Panggil 'Jarvis' dengan suara ${won ? "aktif" : "mati"}`);
+    $("sProj").textContent = data.project || "—";
+    $("sProj").title = "Proyek: " + (data.projectPath || data.project || "-");
+    $("sModel").textContent = data.model || "—";
+    $("bModel").title = data.modelTitle || "Klik untuk ganti model";
+    const STT_LABEL = { groq: "groq", speechmatics: "speechmatics", local: "whisper" };
+    $("sStt").textContent = STT_LABEL[data.stt] || "—";
+    $("bStt").title = "Pengenal suara: " + (STT_LABEL[data.stt] || "-") + ". Klik untuk ganti Groq / Speechmatics";
+    const cr = $("sCredit");
+    cr.hidden = data.credit == null;                // Speechify: tidak ada info kredit
+    cr.textContent = data.credit == null ? "" : Number(data.credit).toLocaleString("id-ID") + " kr";
+    cr.classList.toggle("low", data.credit != null && data.credit < 500);
+    $("sTime").textContent = data.time || "—";
+  }
+
+  // ----- API untuk Python -----
+  window.jarvis = {
+    setState(name, d) {
+      const changed = name !== state;
+      state = STATES[name] ? name : "idle";
+      data = Object.assign({}, data, d || {});
+      if (changed) applyBars(STATES[state]);
+      render();
+    },
+    setLevel(v) {
+      if (!(STATES[state] || {}).live) return;
+      lvl = Math.max(0.05, Math.min(1, +v || 0));     // dibaca drawOrb; tanpa ubah CSS/DOM
+    },
+    setMini(on) {
+      document.body.classList.toggle("mini", !!on);
+      document.body.classList.remove("set");
+      (on ? $("mini") : $("orbHome")).appendChild(orb);
+    },
+  };
+
+  // ----- kontrol -----
+  function pttStart() {
+    if (pttDown) return;
+    if (state === "processing") { call("onCancel"); return; }
+    pttDown = true;
+    pttEl.classList.add("down");
+    call("onPushToTalk", true);
+  }
+  function pttEnd() {
+    if (!pttDown) return;
+    pttDown = false;
+    pttEl.classList.remove("down");
+    call("onPushToTalk", false);
+  }
+  const pttEl = orb.querySelector(".core");        // inti orb menggantikan tombol mic lama
+  pttEl.addEventListener("pointerdown", (e) => {
+    if (document.body.classList.contains("mini") || e.button !== 0) return;   // mode mini: klik dua kali = kembali
+    e.preventDefault(); e.stopPropagation(); pttStart();
+  });
+  pttEl.addEventListener("pointerup", pttEnd);
+  pttEl.addEventListener("pointerleave", pttEnd);
+
+  // dock bisa dilipat; pilihan diingat
+  const FOLD_KEY = "jarvis.dockFold";
+  const setFold = (on) => {
+    document.body.classList.toggle("fold", on);
+    try { localStorage.setItem(FOLD_KEY, on ? "1" : "0"); } catch (e) {}
+  };
+  let foldSaved = null;
+  try { foldSaved = localStorage.getItem(FOLD_KEY); } catch (e) {}
+  setFold(foldSaved !== "0");                      // bawaan: terlipat
+  $("bFold").addEventListener("click", () => setFold(!document.body.classList.contains("fold")));
+  $("wake").addEventListener("click", () => {
+    const on = data.wake === false;                  // dibalik
+    data = Object.assign({}, data, { wake: on });
+    render();
+    call("onWake", on);
+    toast(on ? "Panggil 'Jarvis' aktif" : "Panggil 'Jarvis' mati");
+  });
+  $("bMini").addEventListener("click", () => call("onMini"));
+  $("mini").addEventListener("dblclick", () => call("onMini"));
+  $("bClose").addEventListener("click", () => call("onClose"));
+  $("bSet").addEventListener("click", openSettings);
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("show"), 1600);
+  }
+  $("bBrowser").addEventListener("click", async () => {
+    const m = await call("onToggleBrowser");
+    if (m) toast(m === "chrome" ? "Browser aktif" : "Browser dimatikan");
+  });
+  $("bDesk").addEventListener("click", async () => {
+    const m = await call("onToggleDesktop");
+    if (m) toast(m === "on" ? "Kontrol komputer aktif" : "Kontrol komputer dimatikan");
+  });
+  $("bScreen").addEventListener("click", async () => {
+    const on = await call("onToggleScreen");
+    if (on !== null && on !== undefined) toast(on ? "Lihat layar diizinkan" : "Lihat layar dimatikan");
+  });
+  $("bClip").addEventListener("click", async () => {
+    const on = await call("onToggleClipboard");
+    if (on !== null && on !== undefined) toast(on ? "Baca clipboard diizinkan" : "Baca clipboard dimatikan");
+  });
+  $("bModel").addEventListener("click", async () => {
+    const m = await call("onCycleModel");
+    if (m) toast("Model: " + m);
+  });
+  $("bStt").addEventListener("click", async () => {   // sekali klik: Groq <-> Speechmatics, langsung berlaku
+    const r = await call("onToggleStt");
+    if (!r) return;
+    if (r.error) { toast(r.error); return; }
+    data = Object.assign({}, data, { stt: r.engine });
+    render();
+    toast("Pengenal suara: " + (r.engine === "groq" ? "Groq (cepat)" : "Speechmatics (akurat)"));
+  });
+  $("bNew").addEventListener("click", async () => {   // sama dengan perintah suara "percakapan baru"
+    const r = await call("onNewConversation");
+    if (!r) return;
+    toast(r.ok ? "Percakapan baru dimulai" : r.error);
+  });
+
+  function keyMatches(e) {
+    const hk = (data.hotkey || "F9");
+    if (hk.toLowerCase() === "space") return e.key === " ";
+    return e.key.toLowerCase() === hk.toLowerCase();
+  }
+  document.addEventListener("keydown", (e) => {
+    if (document.body.classList.contains("set")) { if (e.key === "Escape") closeSettings(); return; }
+    if (e.key === "Escape") { e.preventDefault(); call("onCancel"); return; }
+    if (keyMatches(e) && !e.repeat) { e.preventDefault(); pttStart(); }
+  });
+  document.addEventListener("keyup", (e) => { if (keyMatches(e)) pttEnd(); });
+
+  // ----- pengaturan -----
+  function projRow(name, path) {
+    const row = document.createElement("div");
+    row.className = "proj";
+    row.innerHTML = `<input type="text" placeholder="nama" aria-label="Nama proyek"><input type="text" placeholder="E:\\path\\ke\\proyek" aria-label="Path proyek"><button class="xbtn" aria-label="Hapus proyek">×</button>`;
+    const [n, p] = row.querySelectorAll("input");
+    n.value = name || ""; p.value = path || "";
+    row.querySelector("button").addEventListener("click", () => row.remove());
+    $("fProjects").appendChild(row);
+  }
+  function fillSelect(sel, opts, value) {
+    sel.innerHTML = "";
+    for (const [v, label] of opts) {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = label;
+      sel.appendChild(o);
+    }
+    sel.value = value;
+  }
+  async function openSettings() {
+    const s = await call("onOpenSettings");
+    if (!s) return;
+    fillSelect($("fModel"), s.options.voice_models, s.tts_model_id);
+    fillSelect($("fMic"), [["", "Bawaan sistem"], ...s.options.mics.map((m) => [m, m])], s.mic_device);
+    fillSelect($("fStt"), s.options.stt, s.stt);
+    $("fFallback").checked = s.fallback_voice;
+    $("fDetails").checked = s.speak_details;
+    $("fSil").value = s.end_silence_ms;
+    $("fSilV").textContent = s.end_silence_ms + " ms";
+    $("fMerge").value = s.merge_window_ms;
+    mergeLabel();
+    $("fAck").checked = s.ack_enabled;
+    $("fWakeReply").checked = s.wake_reply !== false;
+    document.querySelectorAll('input[name="fRun"]').forEach((r) => (r.checked = r.value === s.run_mode));
+    $("fClaude").value = s.claude_model;
+    $("fBrowser").value = s.browser_mode || "off";
+    $("fConfirm").checked = !!s.browser_confirm;
+    $("fDesk").checked = s.desktop_control === "on";
+    $("fScreen").checked = !!s.screen_enabled;
+    $("fClip").checked = s.clipboard_enabled !== false;
+    $("fProjects").innerHTML = "";
+    s.projects.forEach((p) => projRow(p.name, p.path));
+    $("fTop").checked = s.always_on_top;
+    $("sErr").textContent = "";
+    showKeys(s.keys);
+    keyMsg("", "");
+    document.body.classList.add("set");
+  }
+  // ----- kunci API: kunci utuh tidak pernah dikirim balik dari Python, hanya 4 karakter terakhir -----
+  function showProvider() {
+    document.querySelectorAll(".pv").forEach((d) => d.classList.toggle("on", d.dataset.pv === $("kProvider").value));
+  }
+  function showKeys(k) {
+    k = k || {};
+    for (const id of ["kEleven", "kSfy", "kGroq", "kDg", "kSmx"]) { $(id).value = ""; $(id).type = "password"; }
+    document.querySelectorAll(".eye").forEach((b) => (b.textContent = "LIHAT"));
+    $("kElevenNow").textContent = k.eleven ? "Sekarang: " + k.eleven : "belum diisi";
+    $("kSfyNow").textContent = k.speechify ? "Sekarang: " + k.speechify : "belum diisi";
+    $("kGroqNow").textContent = k.groq ? "Sekarang: " + k.groq : "belum diisi";
+    $("kDgNow").textContent = k.deepgram ? "Sekarang: " + k.deepgram : "belum diisi";
+    $("kSmxNow").textContent = k.speechmatics ? "Sekarang: " + k.speechmatics : "belum diisi";
+    $("kVoice").value = $("kVoice").dataset.now = k.voice_id || "";
+    $("kSfyVoice").value = $("kSfyVoice").dataset.now = k.speechify_voice_id || "";
+    $("kProvider").value = $("kProvider").dataset.now = k.provider || "elevenlabs";
+    showProvider();
+  }
+  function keyMsg(text, kind) { $("kMsg").textContent = text; $("kMsg").className = "kmsg " + (kind || ""); }
+  function keysDirty() {
+    const changed = (id) => $(id).value.trim() && $(id).value.trim() !== $(id).dataset.now;
+    return !!($("kEleven").value.trim() || $("kSfy").value.trim() || $("kGroq").value.trim() || $("kDg").value.trim() || $("kSmx").value.trim()
+              || changed("kVoice") || changed("kSfyVoice") || changed("kProvider"));
+  }
+  $("kProvider").addEventListener("change", showProvider);
+  async function applyKeys() {
+    keyMsg("Mengecek ke server...", "");
+    $("kApply").disabled = true;
+    try {
+      const res = await call("saveKeys", { provider: $("kProvider").value,
+                                           eleven_key: $("kEleven").value, voice_id: $("kVoice").value,
+                                           speechify_key: $("kSfy").value, speechify_voice_id: $("kSfyVoice").value,
+                                           groq_key: $("kGroq").value, deepgram_key: $("kDg").value,
+                                           speechmatics_key: $("kSmx").value });
+      if (res && res.ok) { if (res.keys) showKeys(res.keys); keyMsg(res.info || "Diterapkan.", "good"); return true; }
+      keyMsg((res && res.error) || "Gagal menerapkan.", "bad");
+      return false;
+    } finally { $("kApply").disabled = false; }
+  }
+  document.querySelectorAll(".eye").forEach((b) => b.addEventListener("click", () => {
+    const inp = $(b.dataset.for), show = inp.type === "password";
+    inp.type = show ? "text" : "password";
+    b.textContent = show ? "TUTUP" : "LIHAT";
+  }));
+  $("kApply").addEventListener("click", applyKeys);
+  function closeSettings() { document.body.classList.remove("set"); }
+  $("fSil").addEventListener("input", (e) => ($("fSilV").textContent = e.target.value + " ms"));
+  function mergeLabel() {
+    const v = +$("fMerge").value;
+    $("fMergeV").textContent = v === 0 ? "0 ms · langsung kirim (paling cepat)"
+      : v + " ms · tunggu sebelum kirim, siapa tahu masih lanjut bicara";
+  }
+  $("fMerge").addEventListener("input", mergeLabel);
+  $("fAddProj").addEventListener("click", () => projRow("", ""));
+  $("sBack").addEventListener("click", closeSettings);
+  $("sCancel").addEventListener("click", closeSettings);
+  $("sSave").addEventListener("click", async () => {
+    if (keysDirty() && !(await applyKeys())) {        // kunci yang sudah diketik ikut diterapkan
+      $("sErr").textContent = "Kunci API belum diterapkan, lihat pesan di bagian KUNCI API.";
+      return;
+    }
+    const run = document.querySelector('input[name="fRun"]:checked');
+    const obj = {
+      tts_model_id: $("fModel").value,
+      fallback_voice: $("fFallback").checked,
+      speak_details: $("fDetails").checked,
+      mic_device: $("fMic").value,
+      stt: $("fStt").value,
+      end_silence_ms: +$("fSil").value,
+      merge_window_ms: +$("fMerge").value,
+      ack_enabled: $("fAck").checked,
+      wake_reply: $("fWakeReply").checked,
+      run_mode: run ? run.value : "direct",
+      claude_model: $("fClaude").value,
+      browser_mode: $("fBrowser").value,
+      browser_confirm: $("fConfirm").checked,
+      desktop_control: $("fDesk").checked ? "on" : "off",
+      screen_enabled: $("fScreen").checked,
+      clipboard_enabled: $("fClip").checked,
+      projects: [...$("fProjects").querySelectorAll(".proj")].map((r) => {
+        const [n, p] = r.querySelectorAll("input");
+        return { name: n.value, path: p.value };
+      }),
+      always_on_top: $("fTop").checked,
+    };
+    const res = await call("saveSettings", obj);
+    if (res && res.ok) closeSettings();
+    else $("sErr").textContent = (res && res.error) || "Gagal menyimpan.";
+  });
+
+  applyBars(STATES.idle);
+  requestAnimationFrame(drawOrb);
+  render();
+  window.addEventListener("pywebviewready", () => call("onReady"));
+  if (api()) call("onReady");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "windows-mcp": {
+      "command": "uvx",
+      "args": [
+        "--python",
+        "3.14",
+        "windows-mcp==0.8.9",
+        "serve",
+        "--exclude-tools",
+        "PowerShell,Registry",
+        "--config",
+        "E:\\AndroidStudioProjects\\jarvisP\\windows_mcp_config.toml"
+      ],
+      "env": {
+        "ANONYMIZED_TELEMETRY": "false"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Konfigurasi Windows-MCP khusus Jarvis (dipakai lewat --config di mcp_windows.json).
+# consent_countdown_seconds = 0: tanpa jendela hitung mundur "Starting in N s" sebelum Jarvis mengendalikan
+# mouse/keyboard (bawaan 10 detik). Mengambil alih tetap bisa: gerakkan mouse sendiri.
+[control]
+consent_countdown_seconds = 0
