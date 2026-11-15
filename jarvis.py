@@ -26,6 +26,7 @@ import sounddevice as sd
 import browser_guard
 import capture
 import desktop
+import hapus
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(APP_DIR, "settings.json")
@@ -60,7 +61,8 @@ SYSTEM_PROMPT = (
     "PENGECUALIAN: kalau pengguna jelas minta suatu teks dibacakan (bacakan, bacain, baca semua, ucapkan), "
     "UCAPAN berisi teks itu utuh apa adanya, boleh beberapa kalimat, maksimal 80 kata; jangan diringkas.\n"
     "LAYAR: rincian (daftar, ukuran, nama file, dll); penjelasan maksimal 3 baris. "
-    "Kalau tidak ada rincian, tulis LAYAR: -"
+    "Kalau tidak ada rincian, tulis LAYAR: -\n"
+    + hapus.PROMPT
 )
 
 # Pengingat format kalau pengguna minta dibacakan (menggantikan FORMAT_REMINDER; batas 12 kata tidak berlaku)
@@ -140,7 +142,8 @@ DEFAULTS = {
     "speechify_language": "id-ID",
     "end_silence_ms": 1000,   # diam selama ini = rekaman berakhir (800-3000)
     "merge_window_ms": 0,       # jendela gabung potongan setelah ucapan; 0 = nonaktif (maks 5000)
-    "connective_wait_ms": 700,  # tunggu tambahan kalau ucapan berakhir kata gantung (dan, lalu, ...)
+    "connective_wait_ms": 700,  # tunggu tambahan kalau ucapan berakhir kata gantung (dan, atau, lalu, ...)
+    "filler_wait_ms": 3000,     # tunggu tambahan kalau ucapan berakhir kata ragu (euuu, eee, emm): lagi mikir
     "browser_mode": "off",      # off / chrome (Claude in Chrome, semua situs boleh)
     "browser_confirm": False,   # True = tanya ya/tidak dulu sebelum bayar/kirim/hapus/posting
     "screen_enabled": False,    # "lihat layarku": screenshot hanya saat diminta lewat suara
@@ -248,8 +251,9 @@ def is_action(text, verbs):
     return any(is_verb(w) for w in words)
 
 # Whisper: kalimat pembuka yang membiaskan model ke kosakata kita. Kosakata diambil dari vocab.txt
-# (bisa diedit) ditambah nama proyek di config dan nama folder di proyek aktif.
-WHISPER_PROMPT = "Halo Jarvis, hari ini aku kerja di Android Studio pakai Claude Code. Yang sering kusebut: {terms}."
+# (bisa diedit) ditambah nama proyek di config dan nama folder di proyek aktif. "eee" di awal supaya kata ragu
+# ikut ditulis (Whisper biasanya membuangnya), lihat FILLER_RE / filler_wait_ms.
+WHISPER_PROMPT = "Halo Jarvis, eee, hari ini aku kerja di Android Studio pakai Claude Code. Yang sering kusebut: {terms}."
 VOCAB_PATH = os.path.join(APP_DIR, "vocab.txt")
 CORRECTIONS_PATH = os.path.join(APP_DIR, "corrections.txt")
 MAX_PROMPT_TERMS = 40           # initial_prompt Whisper dibatasi sekitar 224 token
@@ -372,7 +376,20 @@ SILENCE_MIN_MS, SILENCE_MAX_MS = 800, 3000
 MERGE_MAX_MS = 5000
 SENT_END = re.compile(r"(?<=[.!?])\s+|\n+")   # batas kalimat untuk suara streaming
 # tunggu tambahan HANYA kalau transkripsi berakhir dengan kata gantung; kalimat lengkap langsung dikirim
-CONNECTIVES = {"dan", "terus", "lalu", "yang", "buat", "untuk", "kalau", "tapi", "ini", "itu", "kan", "nih"}
+CONNECTIVES = {"dan", "atau", "terus", "lalu", "yang", "buat", "untuk", "kalau", "tapi", "ini", "itu", "kan", "nih"}
+# kata ragu saat mikir ("euuu", "eee", "emm", "hmm", "anu"): tunggu lebih lama (filler_wait_ms), lalu dibuang
+# sebelum perintah dikirim. Huruf boleh dipanjangkan berapa pun ("euuuuu").
+FILLER_RE = re.compile(r"^(?:e+|e+u+h*|e+h+|e+h*m+|h+m+|u+m+|m{2,}|a{2,}h*|a+h+|anu)$")
+
+
+def is_filler(word):
+    return bool(FILLER_RE.match(word.strip(".,!?;:\"'-").lower()))
+
+
+def strip_fillers(text):
+    """Buang kata ragu ("euuu", "emm", ...) dari perintah; tanda baca di sekitarnya ikut dirapikan."""
+    words = [w for w in text.split() if not is_filler(w)]
+    return re.sub(r"\s+([,.!?;:])", r"\1", " ".join(words)).strip(" ,;:-")
 CLOSERS = {"selesai", "sudah"}  # kata penutup opsional: kirim langsung, tidak ikut perintah
 
 
@@ -766,8 +783,9 @@ def clean_speech(s):
 
 def parse_reply(text):
     """Pisahkan jawaban Claude. Return (ucapan, layar, berlabel).
-    Format: 'UCAPAN: ...' lalu 'LAYAR: ...'. Tanpa label: kalimat pertama jadi ucapan, sisanya layar."""
-    text = text.strip()
+    Format: 'UCAPAN: ...' lalu 'LAYAR: ...'. Tanpa label: kalimat pertama jadi ucapan, sisanya layar.
+    Baris 'HAPUS: ...' dibuang (diproses terpisah, lihat hapus.py)."""
+    text = hapus.strip_targets(text)
     m = UCAP_RE.search(text)
     if m:
         after = text[m.end():]
@@ -2385,6 +2403,8 @@ class Jarvis:
         self.log(f"> {text}", "you")      # tampil sebelum dikirim, supaya salah tangkap kelihatan
 
         confident, conf_note = self.check_confidence(segments)
+        if not strip_fillers(text):                      # cuma "euuu...": jangan suruh ulang, tahan sambil mikir
+            confident = True
         if not confident:
             with self.hold_lock:                         # potongan ragu: buang juga yang tertahan
                 self.hold_text, self.hold_notes, self.hold_dur = [], [], 0.0
@@ -2440,9 +2460,12 @@ class Jarvis:
         self.jobs.put(("send", None, 0.0))
 
     def hold_delay(self, last_text):
-        """Detik tunda kirim: jendela gabung (default 0) + tunggu tambahan hanya kalau berakhir kata gantung."""
+        """Detik tunda kirim: jendela gabung (default 0) + tunggu tambahan hanya kalau berakhir kata gantung
+        (connective_wait_ms) atau kata ragu seperti "euuu" (filler_wait_ms, lebih lama)."""
         delay = max(0, min(MERGE_MAX_MS, int(self.settings.get("merge_window_ms", 0)))) / 1000
-        if last_word(last_text) in CONNECTIVES:
+        if is_filler(last_word(last_text)):         # "euuu...": lagi mikir, tunggu lebih lama
+            delay += max(0, int(self.settings.get("filler_wait_ms", 3000))) / 1000
+        elif last_word(last_text) in CONNECTIVES:
             delay += max(0, int(self.settings.get("connective_wait_ms", 700))) / 1000
         return delay
 
@@ -2479,7 +2502,10 @@ class Jarvis:
             self.hold_text, self.hold_notes, self.hold_dur = [], [], 0.0
         if not parts:
             return
-        text = " ".join(parts)
+        text = strip_fillers(" ".join(parts))      # "euuu", "emm" dibuang: hanya tanda lagi mikir
+        if not text:
+            self.set_status(self.idle_status())
+            return
         self.tm["send"] = time.time()              # perintah dikirim ke Claude
         self.set_status("memproses...")
         if len(parts) > 1:
@@ -2496,6 +2522,22 @@ class Jarvis:
         if self.pending:
             decision = parse_confirmation(text)
             pending, self.pending = self.pending, []
+            deletes = [cmd for tool, cmd in pending if tool == "hapus"]   # hapus file: dikerjakan Jarvis sendiri
+            pending = [(tool, cmd) for tool, cmd in pending if tool != "hapus"]
+            if deletes:
+                if decision is True:
+                    self.do_delete(deletes)
+                elif decision is False:
+                    self.log("[hapus] Dibatalkan, tidak ada yang dihapus.", "ask")
+                    self.record("HAPUS DIBATALKAN oleh pengguna")
+                    self.speak("Oke, nggak jadi dihapus.")
+                else:
+                    self.log("[hapus] Jawaban tidak jelas, tidak ada yang dihapus. Diproses sebagai perintah baru.",
+                             "ask")
+                    self.record("HAPUS DIBATALKAN (jawaban tidak jelas)")
+                    self.run_turn(text)
+                if not pending or decision is not True:
+                    return
             if decision is True:
                 rules = [f"{tool}({cmd})" for tool, cmd in pending if cmd]
                 granted = []
@@ -2680,8 +2722,47 @@ class Jarvis:
                 if layar:
                     self.log(layar, "layar")
             self.record("OK: " + answer, tools)
+            self.ask_delete(answer, sp)
         else:
             self.record("TANPA JAWABAN / ERROR", tools)
+
+    # ----- Hapus file / folder (selalu minta izin, ke Recycle Bin) -----
+    def ask_delete(self, answer, sp):
+        """Claude menandai file/folder dengan baris 'HAPUS: <path>': periksa, lalu tanya ya/tidak lewat suara."""
+        targets = hapus.parse_targets(answer)
+        if not targets:
+            return
+        ok, bad = hapus.check_all(targets, hapus.protected_paths(APP_DIR))
+        for path, why in bad:
+            self.log(f"[hapus] Tidak bisa dihapus: {path} ({why})", "err")
+        if not ok:
+            self.record("HAPUS DITOLAK: " + " | ".join(f"{p} ({w})" for p, w in bad))
+            sp.say("Itu nggak bisa aku hapus, alasannya di layar.")
+            return
+        self.pending = [("hapus", p) for p in ok]
+        self.log("[hapus] Minta izin pindahkan ke Recycle Bin:\n" + "\n".join(hapus.detail(p) for p in ok), "ask")
+        self.record("MINTA IZIN HAPUS: " + " | ".join(ok))
+        sp.say(f"Yakin hapus {hapus.spoken(ok)}? Katakan ya atau tidak.")
+
+    def do_delete(self, paths):
+        """Pengguna bilang ya: pindahkan ke Recycle Bin, laporkan hasilnya."""
+        self.set_status("menghapus...")
+        done, failed = hapus.delete(paths, hapus.protected_paths(APP_DIR))
+        for p in done:
+            self.log(f"[hapus] Dipindah ke Recycle Bin: {p}", "ask")
+        for p, why in failed:
+            self.log(f"[hapus] Gagal: {p} ({why})", "err")
+        self.record(f"HAPUS: {len(done)} berhasil, {len(failed)} gagal"
+                    + ("; gagal: " + " | ".join(f"{p} ({w})" for p, w in failed) if failed else ""))
+        if done and not failed:
+            msg = "Sudah, dipindah ke Recycle Bin." if len(done) == 1 else \
+                f"Sudah, {len(done)} item dipindah ke Recycle Bin."
+        elif done:
+            msg = f"{len(done)} terhapus, {len(failed)} gagal, alasannya di layar."
+        else:
+            msg = "Gagal menghapus, alasannya di layar."
+        self.log(msg, "claude")
+        self.speak(msg)
 
     def report_timing(self):
         """Tampilkan dan catat waktu tiap tahap: diam terdeteksi -> transkripsi -> Claude -> suara mulai."""
@@ -2928,6 +3009,8 @@ class Jarvis:
         if browser:
             browser_guard.take_requests(BROWSER_STATE_DIR)    # buang permintaan izin sisa giliran lama
         reminder = text + (READ_ALOUD_REMINDER if is_read_aloud(text) else FORMAT_REMINDER) + (browser_reminder(self.browser_confirm()) if browser else "")
+        if hapus.wants_delete(text):
+            reminder += hapus.REMINDER
         if images:
             sess.send(reminder, images)
         else:

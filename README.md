@@ -19,13 +19,21 @@ Tambahkan paket lain sesuai kebutuhan UI (misalnya PyQt) dan kunci API layanan s
 jarvis.bat          # tanpa jendela konsol
 jarvis.bat debug    # dengan konsol, untuk lihat error
 ```
+Setiap kali dijalankan, `jarvis.bat` otomatis menarik versi terbaru dari branch `main` di GitHub (`update.ps1`). Perubahan lokal tidak pernah ditimpa: kalau bentrok, update dilewati dan Jarvis tetap jalan dengan versi yang ada (catatannya di `logs\update.log`). Update hanya jalan kalau folder ini sedang di branch `main`.
 
 ## Struktur singkat
 - `jarvis.py`: program utama
 - `browser_guard.py`, `desktop.py`: penjaga keamanan dan kontrol desktop
+- `hapus.py`: hapus file/folder ke Recycle Bin setelah diizinkan lewat suara
 - `ui/`, `ui_*.py`: tampilan
 - `settings.json`, `vocab.txt`, `corrections.txt`: pengaturan dan koreksi suara
 - `ARSITEKTUR.md`: catatan arsitektur
+
+## Hapus file atau folder
+Bilang misalnya "Jarvis, hapus folder build di proyek lms". Claude cuma mencari path-nya (perintah hapus tetap diblokir), lalu Jarvis bertanya "Yakin hapus ...? Katakan ya atau tidak." Kalau "ya", Jarvis memindahkannya ke Recycle Bin, jadi masih bisa dikembalikan. Folder sistem (Windows, Program Files), akar drive, folder profil, dan folder Jarvis sendiri tidak bisa dihapus.
+
+## Mikir dulu ("euuu")
+Kalau ucapan berakhir dengan kata sambung (dan, atau, lalu, ...) Jarvis menunggu `connective_wait_ms`. Kalau berakhir dengan kata ragu seperti "euuu", "eee", "emm", "hmm", atau "anu", Jarvis menunggu lebih lama (`filler_wait_ms`, bawaan 3000 ms) dan kata ragunya dibuang sebelum perintah dikirim.
 
 ## Catatan
 Proyek pribadi, masih berkembang. Jarvis tidak akan mengisi kata sandi atau data kartu.
