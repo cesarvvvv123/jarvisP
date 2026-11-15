@@ -165,6 +165,7 @@ class Bridge(QObject):
     modeReq = Signal(bool)       # True = mini
     onTopReq = Signal(bool)
     quitReq = Signal()
+    termReq = Signal(str, str)   # (show|hide|min, folder kerja)
 
     def __init__(self, win, api):
         super().__init__()
@@ -176,6 +177,8 @@ class Bridge(QObject):
         self.modeReq.connect(self._apply_mode)
         self.onTopReq.connect(self._on_top)
         self.quitReq.connect(self._quit)
+        self.termReq.connect(self._terminal)
+        self.term = None
 
     def mini_size(self):
         n = int(self.state.get("mini_size") or MINI_SIZE[0])
@@ -206,6 +209,18 @@ class Bridge(QObject):
         else:
             self._place(*FULL_SIZE, self.state.get("pos_full"))
         save_state(self.state)
+
+    def _terminal(self, kind, cwd):
+        """Panel terminal di samping HUD (terminal_panel.py), dibuat saat pertama dipakai."""
+        if self.term is None:
+            from terminal_panel import TerminalPanel
+            self.term = TerminalPanel()
+        if kind == "show":
+            self.term.show_beside(self._win, cwd)
+        elif kind == "hide":
+            self.term.hide()
+        elif kind == "min" and self.term.isVisible():
+            self.term.toggle_min(True)
 
     def _quit(self):
         self._remember_pos()
@@ -352,6 +367,12 @@ class QtUI(WebUI):
     def on_top(self, on):
         if self.bridge:
             self.bridge.onTopReq.emit(bool(on))
+
+    def terminal(self, kind, cwd=None):
+        if not self.bridge:
+            return False
+        self.bridge.termReq.emit(kind, cwd or "")
+        return True
 
     def set_mini(self, on):
         self.mini = bool(on)
