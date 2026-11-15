@@ -27,6 +27,7 @@ import browser_guard
 import capture
 import desktop
 import hapus
+import terminal_panel
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_PATH = os.path.join(APP_DIR, "settings.json")
@@ -1622,6 +1623,18 @@ class Jarvis:
         self.record(f"BROWSER ({kind}): {reply}")
         self.speak(reply)
 
+    def handle_terminal_command(self, kind):
+        """Perintah suara soal panel terminal, ditangani langsung tanpa Claude."""
+        fn = getattr(self.ui, "terminal", None)
+        ok = bool(fn and fn(kind, self.settings.get("work_dir")))
+        if not ok:
+            reply = "Panel terminal belum tersedia di tampilan ini."
+        else:
+            reply = {"show": "Terminal terbuka.", "hide": "Terminal ditutup.", "min": "Terminal diminimize."}[kind]
+        self.log(reply, "claude")
+        self.record(f"TERMINAL ({kind}): {reply}")
+        self.speak(reply)
+
     # ----- Model Claude -----
     def set_model(self, name):
         """Ganti model (haiku/sonnet/opus): simpan ke settings.json, berlaku di perintah berikutnya."""
@@ -2558,6 +2571,10 @@ class Jarvis:
 
         if is_new_conversation(text):               # "percakapan baru": ditangani lokal, tanpa Claude
             self.reset_conversation()
+            return
+        tc = terminal_panel.parse_command(text)
+        if tc:                                      # "tampilkan terminal": panel di samping HUD, tanpa Claude
+            self.handle_terminal_command(tc)
             return
         bc = parse_browser_command(text)
         if bc:                                      # aktifkan/matikan/tanya browser: ditangani lokal
