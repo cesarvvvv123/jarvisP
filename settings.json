@@ -95,6 +95,7 @@
   "end_silence_ms": 1200,
   "merge_window_ms": 0,
   "connective_wait_ms": 700,
+  "filler_wait_ms": 3000,
   "browser_mode": "chrome",
   "browser_confirm": false,
   "screen_enabled": true,
