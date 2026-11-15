@@ -19,6 +19,7 @@ Tambahkan paket lain sesuai kebutuhan UI (misalnya PyQt) dan kunci API layanan s
 jarvis.bat          # tanpa jendela konsol
 jarvis.bat debug    # dengan konsol, untuk lihat error
 ```
+Setiap kali dijalankan, `jarvis.bat` otomatis menarik versi terbaru dari branch `main` di GitHub (`update.ps1`). Perubahan lokal tidak pernah ditimpa: kalau bentrok, update dilewati dan Jarvis tetap jalan dengan versi yang ada (catatannya di `logs\update.log`). Update hanya jalan kalau folder ini sedang di branch `main`.
 
 ## Struktur singkat
 - `jarvis.py`: program utama

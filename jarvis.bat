@@ -20,6 +20,17 @@ if errorlevel 1 (
   exit /b 0
 )
 
+rem Ambil versi terbaru dari GitHub (branch main), lihat update.ps1. Kalau ada pembaruan, file ini
+rem dijalankan ulang dari awal (cmd membaca .bat sepotong-sepotong, jadi jangan lanjut di file yang sudah berubah).
+rem Satu blok ( ) dibaca utuh oleh cmd sebelum dijalankan, jadi aman walau jarvis.bat ikut berubah.
+(
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0update.ps1"
+  if errorlevel 2 (
+    call "%~f0" %*
+    exit /b
+  )
+)
+
 if /i "%~1"=="debug" (
   "%PYC%" jarvis.py
   pause
